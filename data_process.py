@@ -4,6 +4,8 @@ from transformers import BertTokenizer
 import pandas as pd
 import numpy as np
 import torch
+import nltk
+from nltk.corpus import brown
 
 class TextEyeTrackingDataset(Dataset):
     def __init__(self, csv_file, max_length=512):
@@ -11,6 +13,7 @@ class TextEyeTrackingDataset(Dataset):
         self.tokenizer = BertTokenizer.from_pretrained("/root/aproj/models/vbert/")
         self.max_length = max_length
         self.pad_token_id = self.tokenizer.pad_token_id
+        self.brown_words = brown.words()  # 获取Brown语料库中的所有单词
 
     def __len__(self):
         return len(self.data_frame)
@@ -22,22 +25,35 @@ class TextEyeTrackingDataset(Dataset):
         labels = np.array(eval(self.data_frame.iloc[idx]['labels']))
 
         words = text_seq[:, 1]  # 获取单词
-        input_ids, attention_mask = self.encode_words(words, self.tokenizer, self.max_length, self.pad_token_id)
-        # print(len(input_ids) == len(attention_mask))
-        # print(input_ids)
+        # 计算长度
+        words_length = [len(word) for word in words]
+        words_length = [(length - np.mean(words_length)) / np.std(words_length) for length in words_length] # 标准化
 
+        # 出现频率
+        words_frequence = [self.word_frequency(word) for word in words]
+        words_frequence = [(freq - np.mean(words_frequence)) / np.std(words_frequence) for freq in words_frequence] # 标准化
+
+        # embedding层面信息
+        input_ids, attention_mask = self.encode_words(words, self.tokenizer, self.max_length, self.pad_token_id)
+
+
+        # 位置信息
         word_feature_seq = text_seq[:, 2:].astype(np.float32)  # 假设坐标和大小特征从第2列开始
         # 计算中心点的x坐标
         center_x = word_feature_seq[:, 0] + word_feature_seq[:, 2] / 2.0
         # 计算中心点的y坐标
         center_y = word_feature_seq[:, 1] + word_feature_seq[:, 3] / 2.0
         # 将中心点的x和y坐标组合成一个新的numpy数组
-        center_points = np.vstack((center_x, center_y)).T  # .T 是转置操作，使得数组的形状与期望的对齐
+        # center_points = np.vstack((center_x, center_y)).T  # .T 是转置操作，使得数组的形状与期望的对齐
         # print(center_points)
         # word_features = (center_points - center_points.mean(axis=0)) /center_points.std(axis=0)
-        word_features = center_points
+
+        word_features = np.stack((center_x, center_y, words_length, words_frequence)).T
+        # word_features = np.concatenate((words_length, center_points, words_frequence), axis=1)
+
         # print(f"word_features.shape:{word_features.shape}")
         word_features = self.pad_features(word_features, 512, pad_value=0.0)
+        print(word_features.shape)
 
         # print(f"word_features.shape:{word_features.shape}")
     
@@ -146,3 +162,7 @@ class TextEyeTrackingDataset(Dataset):
             padded_labels = labels[:pad_length]
 
         return padded_labels
+
+    def word_frequency(self, word):
+        # 计算目标词在Brown语料库中的出现频率
+        return self.brown_words.count(word)

@@ -9,7 +9,7 @@ class MultiModalModel(nn.Module):
         super(MultiModalModel, self).__init__()
         self.bert = BertModel.from_pretrained("/root/aproj/models/vbert/")
         embedding_dim = self.bert.config.hidden_size
-
+        
         self.text_lstm = nn.LSTM(embedding_dim + 2, hidden_dim, batch_first=True)
         self.eye_tracking_lstm = nn.LSTM(3, hidden_dim, batch_first=True)
         # 调整全连接层的输入维度，因为我们将融合来自两个LSTM的特征
@@ -18,9 +18,7 @@ class MultiModalModel(nn.Module):
     def forward(self, input_ids, attention_mask, word_features, eye_tracking_features):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         text_embeddings = outputs.last_hidden_state
-        # if random.random() < 0.4:
-        # print(text_embeddings)
-        # print(word_features)
+
         text_features = torch.cat((text_embeddings, word_features), dim=-1)
         
         # print(text_features)

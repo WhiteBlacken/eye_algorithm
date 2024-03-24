@@ -1,12 +1,14 @@
 import torch
 import numpy as np
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score
+from torch.utils.tensorboard import SummaryWriter
 
 # torch.autograd.set_detect_anomaly(True)
-def evaluate_model(model, test_loader, device):
+def evaluate_model(model, test_loader, criterion, device):
     model.eval()  # 设置模型为评估模式
     predictions = []
     actuals = []
+    total_loss = 0
     with torch.no_grad():  # 在评估过程中不计算梯度
         for batch in test_loader:
             input_ids = batch['input_ids'].to(device)
@@ -29,20 +31,32 @@ def evaluate_model(model, test_loader, device):
         if item == -100:
             idx = i
             break
-    
+
     actuals = actuals[:idx]
     predictions = predictions[:idx]
+
+    outputs = torch.tensor(predictions, device=device)  # 将predictions转换为张量
+    labels = torch.tensor(actuals, device=device)  # 将actuals转换为张量
+    loss = criterion(outputs, labels)
+    total_loss += loss.item()
 
     predictions = np.round(predictions)  # 将概率值转换为0或1
 
     accuracy = round(accuracy_score(actuals, predictions), 2)
-    auc = round(roc_auc_score(actuals, predictions), 2)
+
+    try:
+        auc = round(roc_auc_score(actuals, predictions), 2)
+    except:
+        auc = 0.5
+
     precision = round(precision_score(actuals, predictions), 2)
     recall = round(recall_score(actuals, predictions), 2)
+    f1_score = round(2 * (precision * recall) / (precision + recall), 2) if (precision + recall) > 0 else 0
 
-    return accuracy, auc, precision, recall
+    return loss, accuracy, auc, precision, recall, f1_score
 
-def train_model(model, train_loader, test_loader, optimizer, criterion, device, epochs=10):
+def train_model(model, train_loader, test_loader, optimizer, criterion, device, tensorboard_dir, epochs=10):
+    writer = SummaryWriter(tensorboard_dir)
     for epoch in range(epochs):
         model.train()  # 设置模型为训练模式
         total_loss = 0
@@ -72,51 +86,29 @@ def train_model(model, train_loader, test_loader, optimizer, criterion, device, 
             optimizer.step()
             total_loss += loss.item()
 
+        # 在训练集上评估模型
+        train_loss, train_accuracy, train_auc, train_precision, train_recall, train_f1_score = evaluate_model(model, train_loader, criterion, device)
         # 在测试集上评估模型
-        accuracy, auc, precision, recall = evaluate_model(model, test_loader, device)
+        test_loss, test_accuracy, test_auc, test_precision, test_recall, test_f1_score = evaluate_model(model, test_loader, criterion, device)
         # accuracy, auc, precision, recall = 0, 0 , 0 , 0
-        print(f'Epoch {epoch+1}, Loss: {total_loss/len(train_loader)}, Accuracy: {accuracy}, AUC: {auc}, Precision: {precision}, Recall: {recall}')
+        print(f"-----Epoch {epoch + 1}-------")
+        print(f'Train metric in Epoch {epoch+1}, Loss: {train_loss/len(train_loader)}, Accuracy: {train_accuracy}, AUC: {train_auc}, Precision: {train_precision}, Recall: {train_recall}, F1-score: {train_f1_score}')
+        print(f'Test metric in Epoch {epoch+1}, Loss: {test_loss/len(test_loader)}, Accuracy: {test_accuracy}, AUC: {test_auc}, Precision: {test_precision}, Recall: {test_recall}, F1-score: {test_f1_score}')
+        
+        # 在每个epoch结束时将训练和测试的损失以及性能指标写入TensorBoard
+        writer.add_scalar('Loss/train', train_loss/len(train_loader), epoch)
+        writer.add_scalar('Accuracy/train', train_accuracy, epoch)
+        writer.add_scalar('AUC/train', train_auc, epoch)
+        writer.add_scalar('Precision/train', train_precision, epoch)
+        writer.add_scalar('Recall/train', train_recall, epoch)
+        writer.add_scalar('F1-score/train', train_f1_score, epoch)
 
+        writer.add_scalar('Loss/test', test_loss/len(test_loader), epoch)
+        writer.add_scalar('Accuracy/test', test_accuracy, epoch)
+        writer.add_scalar('AUC/test', test_auc, epoch)
+        writer.add_scalar('Precision/test', test_precision, epoch)
+        writer.add_scalar('Recall/test', test_recall, epoch)
+        writer.add_scalar('F1-score/test', test_f1_score, epoch)
 
-def calculate_metrics(target, predict_proba):
-    """
-    计算准确率、精确率、召回率和AUC。
-    
-    参数:
-    - target: 目标值列表，由0和1组成。
-    - predict_proba: 预测的正类概率列表。
-    
-    返回:
-    - accuracy: 准确率。
-    - precision: 精确率。
-    - recall: 召回率。
-    - auc: AUC值。
-    """
-    # 去除padding
-    idx = len(target)
-    for i, item in enumerate(target):
-        if item == - 100:
-            idx = i
-            break
-    
-    target = target[:idx]
-    print(set(target))
-    predict_proba = predict_proba[:idx]
-    # 将概率预测转换为0和1的预测
-    predict = [1 if proba >= 0.5 else 0 for proba in predict_proba]
-    
-    # 计算TP, TN, FP, FN
-    true_positive = sum(p == 1 and t == 1 for p, t in zip(predict, target))
-    true_negative = sum(p == 0 and t == 0 for p, t in zip(predict, target))
-    false_positive = sum(p == 1 and t == 0 for p, t in zip(predict, target))
-    false_negative = sum(p == 0 and t == 1 for p, t in zip(predict, target))
-    
-    # 计算accuracy, precision, recall
-    accuracy = (true_positive + true_negative) / len(predict)
-    precision = true_positive / (true_positive + false_positive) if (true_positive + false_positive) > 0 else 0
-    recall = true_positive / (true_positive + false_negative) if (true_positive + false_negative) > 0 else 0
-    
-    # 计算AUC
-    auc = roc_auc_score(target, predict_proba)
-    
-    return accuracy, auc, precision, recall
+    # 训练结束时关闭SummaryWriter对象
+    writer.close()
