@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import torch
 import nltk
-from nltk.corpus import brown
+# from nltk.corpus import brown
 
 class TextEyeTrackingDataset(Dataset):
     def __init__(self, csv_file, max_length=512):
@@ -13,7 +13,7 @@ class TextEyeTrackingDataset(Dataset):
         self.tokenizer = BertTokenizer.from_pretrained("/root/aproj/models/vbert/")
         self.max_length = max_length
         self.pad_token_id = self.tokenizer.pad_token_id
-        self.brown_words = brown.words()  # 获取Brown语料库中的所有单词
+        # self.brown_words = brown.words()  # 获取Brown语料库中的所有单词
 
     def __len__(self):
         return len(self.data_frame)
@@ -29,9 +29,9 @@ class TextEyeTrackingDataset(Dataset):
         words_length = [len(word) for word in words]
         words_length = [(length - np.mean(words_length)) / np.std(words_length) for length in words_length] # 标准化
 
-        # 出现频率
-        words_frequence = [self.word_frequency(word) for word in words]
-        words_frequence = [(freq - np.mean(words_frequence)) / np.std(words_frequence) for freq in words_frequence] # 标准化
+        # 出现频率 -- 计算太慢了
+        # words_frequence = [self.word_frequency(word) for word in words]
+        # words_frequence = [(freq - np.mean(words_frequence)) / np.std(words_frequence) for freq in words_frequence] # 标准化
 
         # embedding层面信息
         input_ids, attention_mask = self.encode_words(words, self.tokenizer, self.max_length, self.pad_token_id)
@@ -48,12 +48,12 @@ class TextEyeTrackingDataset(Dataset):
         # print(center_points)
         # word_features = (center_points - center_points.mean(axis=0)) /center_points.std(axis=0)
 
-        word_features = np.stack((center_x, center_y, words_length, words_frequence)).T
+        word_features = np.stack((center_x, center_y, words_length)).T
         # word_features = np.concatenate((words_length, center_points, words_frequence), axis=1)
 
         # print(f"word_features.shape:{word_features.shape}")
         word_features = self.pad_features(word_features, 512, pad_value=0.0)
-        print(word_features.shape)
+        # print(word_features.shape)
 
         # print(f"word_features.shape:{word_features.shape}")
     
