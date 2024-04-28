@@ -44,7 +44,7 @@ class MultiModalModel(nn.Module):
 
 
 class MultiModalModelWithAttention(nn.Module):
-    def __init__(self, hidden_dim, output_dim):
+    def __init__(self, hidden_dim, output_dim, show_dimension=False):
         super(MultiModalModelWithAttention, self).__init__()
         self.bert = BertModel.from_pretrained("/root/aproj/models/vbert/")
         embedding_dim = self.bert.config.hidden_size
@@ -58,67 +58,89 @@ class MultiModalModelWithAttention(nn.Module):
         # 调整全连接层的输入维度，因为我们将融合来自两个LSTM的特征
         self.fc = nn.Linear(hidden_dim * 2, output_dim)
 
-    def forward(self, input_ids, attention_mask, word_features, eye_tracking_features):
-        # print(f"input_ids.shape:{input_ids.shape}")
-        # print(f"attention_mask.shape:{attention_mask.shape}")
-        # print(f"word_feature.shape:{word_features.shape}")
-        # print(f"eye_tracking_feature.shape:{eye_tracking_features.shape}")
+        self.show_dimension = show_dimension
 
-        # raise Exception("终止")
+        self.attentionAlignmentLayer = AttentionAlignment(128, 128, 64)
+
+        if show_dimension:
+            print(f"hidden_dim:{hidden_dim}")
+            print(f"output_dim:{output_dim}")
+        
+
+    def forward(self, input_ids, attention_mask, word_features, eye_tracking_features):
 
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         text_embeddings = outputs.last_hidden_state
-
         text_features = torch.cat((text_embeddings, word_features), dim=-1)
         
         text_out, _ = self.text_lstm(text_features)
         eye_tracking_out, _ = self.eye_tracking_lstm(eye_tracking_features)
-
-        # 使用全局平均池化处理眼动追踪序列的输出，以匹配文本序列的长度
-        eye_tracking_avg = eye_tracking_out.mean(dim=1)
-        eye_tracking_expanded = eye_tracking_avg.unsqueeze(1).expand(-1, text_out.size(1), -1)
-
-        # 计算注意力权重
-        combined_features = torch.cat((text_out, eye_tracking_expanded), dim=2)
-        attention_weights = torch.softmax(self.attention(combined_features), dim=1)
-        
-        print(f"attention_weight.shape:{attention_weights.shape}")
-        # 使用注意力权重对眼动追踪特征进行加权平均
-        aligned_eye_tracking = torch.sum(attention_weights * eye_tracking_expanded, dim=1)
-        print(f"aligned_eye_tracking.shape:{aligned_eye_tracking.shape}")
-        print(f"text_out.shape:{text_out.shape}")
-        
-
-        # 融合文本特征和对齐后的眼动追踪特征
-        combined_features = torch.cat((text_out, aligned_eye_tracking.unsqueeze(1).expand(-1, text_out.size(1), -1)), dim=2)
-
-        q = aligned_eye_tracking.unsqueeze(1).expand(-1, text_out.size(1), -1)
-        print(f"aligned_eye_tracking.unsqueeze(1).expand(-1, text_out.size(1), -1)), dim=2:{q.shape}")
-        raise Exception("终止")
-        # 对融合后的特征进行分类
-        output = self.fc(combined_features)
-
+    
+        if self.show_dimension:
+            print(f"input_ids:{input_ids.shape}")
+            print(f"attention_mask:{attention_mask.shape}")
+            print(f"word_features:{word_features.shape}")
+            print(f"eye_tracking_features:{eye_tracking_features.shape}")
+            
+            print(f"text_embeddings:{text_embeddings.shape}")
+            print(f"text_features:{text_features.shape}")
+            print(f"text_out:{text_out.shape}")
+            print(f"eye_tracking_out:{eye_tracking_out.shape}")
+            
+        output = self.attentionAlignmentLayer(text_out, eye_tracking_out)
+        if self.show_dimension:
+            print(f"output.shape:{output.shape}")
+        # sys.exit(0)
         return output
 
-# if __name__ == '__main__':
-#     # input_ids.shape:torch.Size([1, 512])
-#     # attention_mask.shape:torch.Size([1, 512])
-#     # word_feature.shape:torch.Size([1, 512, 3])
-#     # eye_tracking_feature.shape:torch.Size([1, 2248, 3])
+class AttentionAlignment(nn.Module):
+    def __init__(self, word_dim, fixation_dim, hidden_dim):
+        super(AttentionAlignment, self).__init__()
+        self.word_dim = word_dim
+        self.fixation_dim = fixation_dim
+        self.hidden_dim = hidden_dim
+        
+        # 添加线性层调整fixation_seq的维度
+        self.linear_fixation = nn.Linear(fixation_dim, word_dim)
+        # 定义注意力权重计算层
+        self.attention = nn.MultiheadAttention(embed_dim=word_dim, num_heads=1)
+        # 定义全连接层
+        self.fc = nn.Linear(word_dim * 2, hidden_dim)
+        # 定义输出层
+        self.output_layer = nn.Linear(hidden_dim, 1)
+        self.sigmoid = nn.Sigmoid()
 
-#     hidden_dim = 128  # LSTM隐藏层维度
-#     output_dim = 1  # 输出维度，二分类问题
-#     model = MultiModalModelWithAttention(hidden_dim, output_dim)
-#     input_ids = torch.randint(0, 100, (1, 512), dtype=torch.long)  # 将input_ids转换为torch.long类型
-#     attention_mask = torch.randn(1, 512)
-#     word_features = torch.randn(1, 512, 3)
-#     eye_tracking_features = torch.randn(1, 2248, 3)
+    def forward(self, word_seq, fixation_seq):
+        # 调整fixation_seq的维度
+        # adjusted_fixation_seq = self.linear_fixation(fixation_seq)
+        adjusted_fixation_seq = fixation_seq
+        # 计算注意力权重
+        attention_weights, _ = self.attention(word_seq.permute(1, 0, 2), adjusted_fixation_seq.permute(1, 0, 2), adjusted_fixation_seq.permute(1, 0, 2))
+        # print(attention_weights.shape)
+        # 对齐word序列和fixation序列
+        aligned_word = torch.cat((word_seq, attention_weights.permute(1, 0, 2)), dim=2)
+        # 使用全连接层进行特征融合
+        fused_features = torch.relu(self.fc(aligned_word))      
+        # 输出层
+        output = self.sigmoid(self.output_layer(fused_features))
+        
+        # print(f"adjusted_fixation_seq:{adjusted_fixation_seq.shape}")
+        # print(f"word_seq.permute(1, 0, 2):{word_seq.permute(1, 0, 2).shape}")
+        # print(f"adjusted_fixation_seq.permute(1, 0, 2):{adjusted_fixation_seq.permute(1, 0, 2).shape}")
+        # print(f"attention_weights:{attention_weights.shape}")
+        # print(f"aligned_word:{aligned_word.shape}")
+        # print(f"fused_features.shape")
+        # print(f"output:{output.shape}")
+        return output
 
-#     output = model(input_ids, attention_mask, word_features, eye_tracking_features)
+class MultiModalModelWrapper(nn.Module):
+    def __init__(self, hidden_dim, output_dim, pos_weight):
+        super().__init__()
+        self.model = MultiModalModelWithAttention(hidden_dim, output_dim, show_dimension=False)
+        self.pos_weight = pos_weight
 
-#     from torchviz import make_dot
-#     # 生成模型结构图
-#     dot = make_dot(output, params=dict(model.named_parameters()))
-#     dot.format = 'png'
-#     dot.render("model_structure", cleanup=True)
-  
+    def forward(self, text_input, visual_input):
+        return self.model(text_input, visual_input)
+
+    def fit(self, train_loader, test_loader, optimizer, criterion, device, epochs):
+        train_model(self.model, train_loader, test_loader, optimizer, criterion, device, tensorboard_dir, epochs)

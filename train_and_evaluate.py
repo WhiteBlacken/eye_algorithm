@@ -39,9 +39,9 @@ def evaluate_model(model, test_loader, criterion, device):
     labels = torch.tensor(actuals, device=device)  # 将actuals转换为张量
     loss = criterion(outputs, labels)
     total_loss += loss.item()
-
+    # print(f"predictions:{predictions:[0:30]}")
     predictions = np.round(predictions)  # 将概率值转换为0或1
-
+    # print(f"predictions:{predictions}")
     accuracy = round(accuracy_score(actuals, predictions), 2)
 
     try:
