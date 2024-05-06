@@ -9,7 +9,10 @@ class MultiModalModel(nn.Module):
         super(MultiModalModel, self).__init__()
         self.bert = BertModel.from_pretrained("/root/aproj/models/vbert/")
         embedding_dim = self.bert.config.hidden_size
-        
+        # 冻结bert的参数
+        for param in self.bert.parameters():
+            param.requires_grad = False 
+            
         self.text_lstm = nn.LSTM(embedding_dim + 3, hidden_dim, batch_first=True)
         self.eye_tracking_lstm = nn.LSTM(3, hidden_dim, batch_first=True)
         # 调整全连接层的输入维度，因为我们将融合来自两个LSTM的特征
@@ -48,6 +51,10 @@ class MultiModalModelWithAttention(nn.Module):
         super(MultiModalModelWithAttention, self).__init__()
         self.bert = BertModel.from_pretrained("/root/aproj/models/vbert/")
         embedding_dim = self.bert.config.hidden_size
+        # 冻结bert的参数
+        for param in self.bert.parameters():
+            param.requires_grad = False 
+
         
         self.text_lstm = nn.LSTM(embedding_dim + 3, hidden_dim, batch_first=True)
         self.eye_tracking_lstm = nn.LSTM(3, hidden_dim, batch_first=True)

@@ -21,7 +21,7 @@ def evaluate_model(model, test_loader, criterion, device):
             outputs = torch.sigmoid(outputs.squeeze(dim=2).view(-1))  # 使用sigmoid激活函数获取概率,因为要算准确率
             predictions.extend(outputs.tolist())
             actuals.extend(labels.view(-1).tolist())
-
+    
     # 计算性能指标
     # accuracy, auc, precision, recall = calculate_metrics(actuals, predictions)
 
@@ -39,20 +39,21 @@ def evaluate_model(model, test_loader, criterion, device):
     labels = torch.tensor(actuals, device=device)  # 将actuals转换为张量
     loss = criterion(outputs, labels)
     total_loss += loss.item()
-    # print(f"predictions:{predictions:[0:30]}")
     predictions = np.round(predictions)  # 将概率值转换为0或1
-    # print(f"predictions:{predictions}")
-    accuracy = round(accuracy_score(actuals, predictions), 2)
-
+    window_size = 3
+    
+    # 将predictions转换为0或1
+    predictions_binary = [1 if pred == 1 and any(actuals[i:i+window_size]) == 1 else 0 for i, pred in enumerate(predictions)]
+    
+    accuracy = round(accuracy_score(actuals, predictions_binary), 2)
+    precision = round(precision_score(actuals, predictions_binary), 2)
+    recall = round(recall_score(actuals, predictions_binary), 2)
+    f1_score = round(2 * (precision * recall) / (precision + recall), 2) if (precision + recall) > 0 else 0
     try:
-        auc = round(roc_auc_score(actuals, predictions), 2)
+        auc = round(roc_auc_score(actuals, predictions_binary), 2)
     except:
         auc = 0.5
-
-    precision = round(precision_score(actuals, predictions), 2)
-    recall = round(recall_score(actuals, predictions), 2)
-    f1_score = round(2 * (precision * recall) / (precision + recall), 2) if (precision + recall) > 0 else 0
-
+        
     return loss, accuracy, auc, precision, recall, f1_score
 
 def train_model(model, train_loader, test_loader, optimizer, criterion, device, tensorboard_dir, epochs=10):
@@ -112,3 +113,4 @@ def train_model(model, train_loader, test_loader, optimizer, criterion, device, 
 
     # 训练结束时关闭SummaryWriter对象
     writer.close()
+
