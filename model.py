@@ -2,7 +2,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import BertModel
-import random
+import re
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
+from sklearn.metrics import roc_auc_score
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+import pandas as pd
 
 class MultiModalModel(nn.Module):
     def __init__(self, hidden_dim, output_dim):
@@ -151,3 +161,86 @@ class MultiModalModelWrapper(nn.Module):
 
     def fit(self, train_loader, test_loader, optimizer, criterion, device, epochs):
         train_model(self.model, train_loader, test_loader, optimizer, criterion, device, tensorboard_dir, epochs)
+
+
+
+
+class PredictAndEvaluteBaseModel:
+    def __init__(self, df, use_word):
+        self.df = df
+        self.df['word'] = self.df['word'].apply(self.clean_text)
+        self.X = self.df.drop(['word_understand','word', 'user'], axis=1)  # Features
+        self.y = self.df['word_understand']  # Target variable
+        self.use_word = use_word
+
+    def clean_text(self, text):
+        text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
+        text = text.lower()  # Convert to lowercase
+        return text
+
+    def text_to_vector(self):
+        # Initialize CountVectorizer
+        vectorizer = CountVectorizer()
+        # Vectorize text column
+        X_word = vectorizer.fit_transform(self.df['word'])
+        # Convert sparse matrix to dense matrix if needed
+        X_word = X_word.toarray()
+        # Concatenate vectorized features with original features
+        self.X = np.concatenate((X_word, self.df.drop(['word', 'word_understand'], axis=1).values), axis=1)
+
+    def predict(self, output_file=None):
+        if self.use_word:
+            self.text_to_vector()
+
+        # Split dataset into train and test
+        X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, test_size=0.3, random_state=42)
+        model = LogisticRegression()
+        model.fit(X_train, y_train)
+        y_pred_proba = model.predict_proba(X_test)[:, 1]
+        y_pred = model.predict(X_test)
+        print(classification_report(y_test, y_pred))
+        auc_score = roc_auc_score(y_test, y_pred_proba)
+        print(f"AUC: {auc_score}")
+        results_df = X_test
+        results_df['y_pred'] = y_pred.tolist()
+        results_df['y_label'] = y_test.tolist()
+        
+        if output_file != None:
+            # Save results to CSV
+            results_df.to_csv(output_file, index=False)
+            print(f"Predictions saved to {output_file}")
+
+def PredictAndEvaluteBaseModelForSkipData(data):
+    # 提取文本特征
+    vectorizer = TfidfVectorizer()
+    X_text = vectorizer.fit_transform(data["word"])
+
+    # 提取眼动特征
+    X_eye_movement = data[["reading_times", "number_of_fixations", "fixation_duration"]].values
+
+    # 合并特征
+    X = np.hstack((X_text.toarray(), X_eye_movement))
+    y = data["word_understand"]
+
+    # 划分训练集和测试集
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    # 创建管道，包含标准化和逻辑回归模型
+    pipe = Pipeline([
+        ('scaler', StandardScaler()),
+        ('clf', LogisticRegression())
+    ])
+
+    # 训练模型
+    pipe.fit(X_train, y_train)
+
+    # 在测试集上进行预测
+    y_pred = pipe.predict(X_test)
+    y_pred_proba = pipe.predict_proba(X_test)[:, 1]  # 获取预测的概率
+
+    # 输出分类报告
+    print(classification_report(y_test, y_pred))
+
+    # 计算并输出 AUC
+    auc = roc_auc_score(y_test, y_pred_proba)
+    print("AUC:", auc)
