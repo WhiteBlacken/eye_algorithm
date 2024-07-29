@@ -258,3 +258,47 @@ def PredictAndEvaluteBaseModelForSkipData(data):
     # # 计算 weighted 平均的 AUC
     # weighted_auc = roc_auc_score(y_test, y_pred, average='weighted')
     # print("AUC:", weighted_auc)
+
+
+def PredictAndEvaluteBaseModelForSkipDataWithWindowSize(data):
+    # 提取文本特征
+    vectorizer = TfidfVectorizer()
+    X_text = vectorizer.fit_transform(data["word"])
+
+    # 提取眼动特征
+    X_eye_movement = data[["reading_times", "number_of_fixations", "fixation_duration",
+                           "number_of_fixations_avg_left_two","number_of_fixations_max_left_two","number_of_fixations_avg_right_two","number_of_fixations_max_right_two","fixation_duration_avg_left_two","fixation_duration_max_left_two","fixation_duration_avg_right_two","fixation_duration_max_right_two","reading_times_avg_left_two","reading_times_max_left_two","reading_times_avg_right_two","reading_times_max_right_two"]]
+                           
+    # 合并特征
+    X = np.hstack((X_text.toarray(), X_eye_movement))
+    y = data["word_understand"]
+
+    # 划分训练集和测试集
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    # 创建管道，包含标准化和逻辑回归模型
+    pipe = Pipeline([
+        ('scaler', StandardScaler()),
+        ('clf', LogisticRegression())
+    ])
+    # 训练模型
+    pipe.fit(X_train, y_train)
+
+    # 在测试集上进行预测
+    y_pred = pipe.predict(X_test)
+    y_pred_proba = pipe.predict_proba(X_test)[:, 1]  # 获取预测的概率
+    print(classification_report(y_test, y_pred))
+
+
+    accuracy = accuracy_score(y_test, y_pred)
+    
+    # # 打印准确率
+    print("Accuracy:", accuracy)
+
+   # 计算 macro 平均的 AUC
+    macro_auc = roc_auc_score(y_test, y_pred, average='macro')
+    print("AUC:", macro_auc)
+
+    # # 计算 weighted 平均的 AUC
+    # weighted_auc = roc_auc_score(y_test, y_pred, average='weighted')
+    # print("AUC:", weighted_auc)
