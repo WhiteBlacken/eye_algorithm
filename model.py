@@ -204,6 +204,12 @@ class PredictAndEvaluteBaseModel:
         results_df = X_test
         results_df['y_pred'] = y_pred.tolist()
         results_df['y_label'] = y_test.tolist()
+
+        accuracy = accuracy_score(y_test, y_pred)
+    
+        # 打印准确率
+        print("Accuracy:", accuracy)
+
         
         if output_file != None:
             # Save results to CSV
@@ -239,25 +245,16 @@ def PredictAndEvaluteBaseModelForSkipData(data):
     y_pred_proba = pipe.predict_proba(X_test)[:, 1]  # 获取预测的概率
     print(classification_report(y_test, y_pred))
 
-    # 计算并输出 AUC
-    auc = roc_auc_score(y_test, y_pred_proba)
-    print("AUC:", auc)
 
     accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred, average=None)  # average=None 可获取每个类别的精确率
-    recall = recall_score(y_test, y_pred, average=None)  # 每个类别的召回率
-    f1 = f1_score(y_test, y_pred, average=None)  # 每个类别的 F1 分数
-
-    # 打印准确率
+    
+    # # 打印准确率
     print("Accuracy:", accuracy)
-    print(f"precision:{precision[0]*0.7+precision[1]*0.3}")
-    print(f"recall:{recall[0]*0.7+recall[1]*0.3}")
-    print(f"f1:{f1[0]*0.7+f1[1]*0.3}")
-   
+
    # 计算 macro 平均的 AUC
     macro_auc = roc_auc_score(y_test, y_pred, average='macro')
-    print("Macro AUC:", macro_auc)
+    print("AUC:", macro_auc)
 
-    # 计算 weighted 平均的 AUC
-    weighted_auc = roc_auc_score(y_test, y_pred, average='weighted')
-    print("Weighted AUC:", weighted_auc)
+    # # 计算 weighted 平均的 AUC
+    # weighted_auc = roc_auc_score(y_test, y_pred, average='weighted')
+    # print("AUC:", weighted_auc)
